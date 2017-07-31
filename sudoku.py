@@ -49,3 +49,145 @@ def grid_values(grid):
     chars = [c for c in grid if c in digits or c in '0.']
     assert len(chars) == 81
     return dict(zip(squares, chars))
+
+
+#constraint propagation
+
+def assign(values, s, d):
+    """Eliminate all the other values (except d) from values[s] and propagate.
+    Return values, except return False if a contradiction is detected."""
+    other_values = values[s].replace(d, '')
+    if all(eliminate(values, s, d2) for d2 in other_values):
+        return values
+    else:
+        return False
+
+def eliminate(values, s, d):
+    """Eliminate d from values[s]; propagate when values or places <= 2.
+    Return values, except return False if a contradiction is detected."""
+    if d not in values[s]:
+        return values ## Already eliminated
+    values[s] = values[s].replace(d,'')
+    ## (1) If a square s is reduced to one value d2, then eliminate d2 from the peers.
+    if len(values[s]) == 0:
+	return False ## Contradiction: removed last value
+    elif len(values[s]) == 1:
+        d2 = values[s]
+        if not all(eliminate(values, s2, d2) for s2 in peers[s]):
+            return False
+    ## (2) If a unit u is reduced to only one place for a value d, then put it there.
+    for u in units[s]:
+	dplaces = [s for s in u if d in values[s]]
+	if len(dplaces) == 0:
+	    return False ## Contradiction: no place for this value
+	elif len(dplaces) == 1:
+	    # d can only be in one place in unit; assign it there
+            if not assign(values, dplaces[0], d):
+                return False
+    return values
+
+#Now before we can go much further, we will need to display a puzzle:
+
+def display(values):
+    "Display these values as a 2-D grid."
+    width = 1+max(len(values[s]) for s in squares)
+    line = '+'.join(['-'*(width*3)]*3)
+    for r in rows:
+        print ''.join(values[r+c].center(width)+('|' if c in '36' else '')
+                      for c in cols)
+        if r in 'CF': print line
+    print
+
+#Now we're ready to go. I picked the first example from a list of easy puzzles from the fine Project Euler Sudoku problem and tried it:
+
+grid1 = '003020600900305001001806400008102900700000008006708200002609500800203009005010300'
+
+display(parse_grid(grid1))
+
+#In this case, the puzzle was completely solved by rote application of strategies (1) and (2)! Unfortunately, that will not always be the case. Here is the first example from a list of hard puzzles:
+
+grid2 = '4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......'
+
+#Search
+#The other route is to search for a solution: to systematically try all possibilities until we hit one that works. The code for this is less than a dozen lines, but we run another risk: that it might take forever to run.
+
+def solve(grid): return search(parse_grid(grid))
+
+def search(values):
+    "Using depth-first search and propagation, try all possible values."
+    if values is False:
+        return False ## Failed earlier
+    if all(len(values[s]) == 1 for s in squares): 
+        return values ## Solved!
+    ## Chose the unfilled square s with the fewest possibilities
+    n,s = min((len(values[s]), s) for s in squares if len(values[s]) > 1)
+    return some(search(assign(values.copy(), s, d)) 
+		for d in values[s])
+
+def some(seq):
+    "Return some element of seq that is true."
+    for e in seq:
+        if e: return e
+    return False
+
+#Here is the code that defines solve_all and uses it to verify puzzles from a file as well as random puzzles:
+import time, random
+
+def solve_all(grids, name='', showif=0.0):
+    """Attempt to solve a sequence of grids. Report results.
+    When showif is a number of seconds, display puzzles that take longer.
+    When showif is None, don't display any puzzles."""
+    def time_solve(grid):
+        start = time.clock()
+        values = solve(grid)
+        t = time.clock()-start
+        ## Display puzzles that take long enough
+        if showif is not None and t > showif:
+            display(grid_values(grid))
+            if values: display(values)
+            print '(%.2f seconds)\n' % t
+        return (t, solved(values))
+    times, results = zip(*[time_solve(grid) for grid in grids])
+    N = len(grids)
+    if N > 1:
+        print "Solved %d of %d %s puzzles (avg %.2f secs (%d Hz), max %.2f secs)." % (
+            sum(results), N, name, sum(times)/N, N/sum(times), max(times))
+
+def solved(values):
+    "A puzzle is solved if each unit is a permutation of the digits 1 to 9."
+    def unitsolved(unit): return set(values[s] for s in unit) == set(digits)
+    return values is not False and all(unitsolved(unit) for unit in unitlist)
+
+def from_file(filename, sep='\n'):
+    "Parse a file into a list of strings, separated by sep."
+    return file(filename).read().strip().split(sep)
+
+def random_puzzle(N=17):
+    """Make a random puzzle with N or more assignments. Restart on contradictions.
+    Note the resulting puzzle is not guaranteed to be solvable, but empirically
+    about 99.8% of them are solvable. Some have multiple solutions."""
+    values = dict((s, digits) for s in squares)
+    for s in shuffled(squares):
+        if not assign(values, s, random.choice(values[s])):
+            break
+        ds = [values[s] for s in squares if len(values[s]) == 1]
+        if len(ds) >= N and len(set(ds)) >= 8:
+            return ''.join(values[s] if len(values[s])==1 else '.' for s in squares)
+    return random_puzzle(N) ## Give up and make a new puzzle
+
+def shuffled(seq):
+    "Return a randomly shuffled copy of the input sequence."
+    seq = list(seq)
+    random.shuffle(seq)
+    return seq
+
+grid1  = '003020600900305001001806400008102900700000008006708200002609500800203009005010300'
+grid2  = '4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......'
+hard1  = '.....6....59.....82....8....45........3........6..3.54...325..6..................'
+    
+if __name__ == '__main__':
+    test()
+    solve_all(from_file("easy50.txt", '========'), "easy", None)
+    solve_all(from_file("top95.txt"), "hard", None)
+    solve_all(from_file("hardest.txt"), "hardest", None)
+    solve_all([random_puzzle() for _ in range(99)], "random", 100.0)
