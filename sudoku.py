@@ -1,3 +1,7 @@
+#this code take from here:
+#http://norvig.com/sudoku.html
+
+
 #We can implement the notions of units, peers, and squares in the programming language Python (2.5 or later) as follows:
 
 def cross(A, B):
